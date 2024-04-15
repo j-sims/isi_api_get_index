@@ -32,10 +32,12 @@ Set these variables in your environment before running the script.
 ## Usage
 
 1. Set the necessary environment variables:
+   ```
    export CLUSTER_IP='192.168.1.1'
    export PORT='443'
    export USER='admin'
    export PASSWORD='password'
+   ```
 
 2. Run the script from the command line:
    python3 cluster_api_tool.py
