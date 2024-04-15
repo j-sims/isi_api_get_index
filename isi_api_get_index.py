@@ -1,52 +1,73 @@
 #!/usr/bin/env python3
 import requests
 import json
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) # Supresses the self signed cert warning
+import os
+from requests.exceptions import RequestException
 
-CLUSTERIP = '172.16.10.10'
-PORT=8080
-USER='root'
-PASS='a'
+# Suppress insecure HTTPS request warnings for self-signed certificates
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# uri of the cluster used in the referer header
-uri = f"https://{CLUSTERIP}:{PORT}"
-# url of Papi used for all further calls to Papi
-papi = uri + '/platform'
-# Set header as content will provided in json format
-headers = {'Content-Type': 'application/json'}
-# Create json dictionary for auth
-data = json.dumps({'username': USER, 'password': PASS, 'services': ['platform']})
-# create a session object to hold cookies
+# Configuration settings potentially from environment variables
+CLUSTER_IP = os.getenv('CLUSTER_IP')
+PORT = os.getenv('PORT')
+USER = os.getenv('USER')
+PASSWORD = os.getenv('PASSWORD')
+
+# API endpoint construction
+BASE_URL = f"https://{CLUSTER_IP}:{PORT}"
+AUTH_URL = f"{BASE_URL}/session/1/session"
+API_URL = f"{BASE_URL}/platform"
+
+# Headers for sending/receiving JSON
+HEADERS = {'Content-Type': 'application/json'}
+
+# Start session to manage cookies and headers
 session = requests.Session()
-# Establish session using auth credentials
-response = session.post(uri + "/session/1/session", data=data, headers=headers, verify=False)
-if 200 <= response.status_code < 299:
-    # Set headers for CSRF protection. Without these two headers all further calls with be "auth denied"
-    session.headers['referer'] = uri
-    session.headers['X-CSRF-Token'] = session.cookies.get('isicsrf')
-else:
-    print("Authorization Failed")
-    print(response.content)
 
-lins = []
-indexname = "cluster_lin_index"
-endpoint = '/8/fsa/index/cluster_lin_index/lins'
+def authenticate():
+    """Authenticate with the cluster and setup CSRF protection."""
+    auth_data = json.dumps({'username': USER, 'password': PASSWORD, 'services': ['platform']})
+    try:
+        response = session.post(AUTH_URL, data=auth_data, headers=HEADERS, verify=False)
+        response.raise_for_status()
+        
+        # Set headers for CSRF protection
+        session.headers['referer'] = BASE_URL
+        session.headers['X-CSRF-Token'] = session.cookies.get('isicsrf')
+        return True
+    except RequestException as e:
+        print(f"Authorization Failed: {str(e)}")
+        print(f"Response Status Code: {response.status_code}")
+        print(f"Response Text: {response.text}")
+        return False
 
-response = session.get(papi + endpoint, verify=False)
-result = json.loads(response.content)
-lins += result['lins']
+def fetch_lins(index_name="cluster_lin_index"):
+    """Fetch Logical Interface Numbers (LINs) from the cluster API."""
+    lins = []
+    endpoint = f'/8/fsa/index/{index_name}/lins'
+    try:
+        response = session.get(f"{API_URL}{endpoint}", verify=False)
+        response.raise_for_status()
+        result = response.json()
+        lins.extend(result['lins'])
 
-if result['resume']:
-    key=result['resume']
-    while result['resume']:
+        while result.get('resume'):
+            endpoint += f"?resume={result['resume']}"
+            response = session.get(f"{API_URL}{endpoint}", verify=False)
+            response.raise_for_status()
+            result = response.json()
+            lins.extend(result['lins'])
 
-        endpoint = f'/8/fsa/index/cluster_lin_index/lins?resume={key}'
-        response = session.get(papi + endpoint, verify=False)
-        result = json.loads(response.content)
-        key=result['resume']
-        lins += result['lins']
+    except RequestException as e:
+        print(f"Failed to fetch LINs: {str(e)}")
+    return lins
 
-print(f"There are {len(lins)} files")
-print(lins[0])
+def main():
+    if authenticate():
+        lins = fetch_lins()
+        print(f"There are {len(lins)} files")
+        if lins:
+            print(lins[0])
 
+if __name__ == "__main__":
+    main()
