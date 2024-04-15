@@ -40,7 +40,7 @@ Set these variables in your environment before running the script.
    ```
 
 2. Run the script from the command line:
-   python3 cluster_api_tool.py
+   ```python3 cluster_api_tool.py```
 
 ## Handling Errors
 
